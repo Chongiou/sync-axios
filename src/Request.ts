@@ -1,46 +1,63 @@
 import { createSyncFn } from 'synckit'
-import { mergeObject, isObject, arrayBufferToJSON } from './utils'
+import { mergeObject, isObject, arrayBufferToJSON, arrayBufferToText } from './utils'
 import { RequestConfig, Response, RequestDefaults, Result } from './types'
 import { Interceptors } from './Interceptors'
+import { URLSearchParams } from 'node:url'
 
 export class Request {
   constructor(defaults: RequestConfig = {}) {
-    Object.assign(this.defaults, defaults)
+    this.defaults.headers.common = defaults.headers ?? {}
+    Object.assign(this.defaults, Object.assign({}, defaults, { headers: {} }))
 
-    // internalInterceptors
-    this.interceptors.request.use(conf => {
-      if (!conf.headers) {
-        conf.headers = {}
+    function internalInterceptorsForMergeConfig(this: Request, userConfig: RequestConfig) {
+      // 合并配置, 优先级: 实例配置 < 请求配置
+      const headers = Object.assign({}, this.defaults.headers.common, (this.defaults.headers as any)?.[userConfig.method!] ?? {}, userConfig.headers)
+      const defaults = Object.assign({}, this.defaults, { headers }) as RequestConfig
+      const configResolve = mergeObject({}, defaults, userConfig) as RequestConfig
+
+      if (configResolve.baseURL) {
+        configResolve.url = new URL(configResolve.url!, configResolve.baseURL).toString()
       }
-      if (['post'].includes(conf.method ?? '') && !conf.headers?.['content-type'] && isObject(conf.data)) {
-        conf.headers['content-type'] = 'application/json; charset=utf-8'
-      }
-      if (conf.baseURL) {
-        conf.url = new URL(conf.url!, conf.baseURL).toString()
-      }
-      return conf
-    })
+      return configResolve
+    }
+
+    this.interceptors.request.use(internalInterceptorsForMergeConfig.bind(this))
   }
 
   private workerFilepath = `${import.meta.dirname}/index.worker.js`
 
   public defaults: RequestDefaults = {
     headers: {
-      common: {
-      }
+      common: {},
+      post: {},
+      get: {},
     },
-    transformRequest(data, headers) {
-      if (headers['content-type']?.includes('application/json')) {
-        try { return JSON.stringify(data) } catch { }
+    transformRequest: [
+      (data, headers) => {
+        if (!headers['content-type']) {
+          if (isObject(data)) {
+            headers['content-type'] = 'application/json'
+            return JSON.stringify(data)
+          }
+          if (typeof data === 'string' || data instanceof URLSearchParams) {
+            headers['content-type'] = 'application/x-www-form-urlencoded'
+            return data.toString()
+          }
+        }
+        return data
       }
-      return data
-    },
-    transformResponse(data, headers) {
-      if (headers['content-type'].includes('application/json')) {
-        return arrayBufferToJSON(data)
+    ],
+    transformResponse: [
+      (data, headers) => {
+        if (headers['content-type']?.includes('application/json')) {
+          data = arrayBufferToJSON(data)
+        }
+        if (headers['content-type']?.includes('text/html') || headers['content-type']?.includes('text/plain')) {
+          data = arrayBufferToText(data)
+        }
+        return data
       }
-      return data
-    }
+    ]
   }
 
   private execTransformRequest(conf: RequestConfig) {
@@ -54,13 +71,13 @@ export class Request {
     return conf
   }
 
-  private execTransformResponse(conf: RequestConfig, response: Response) {
-    if (Array.isArray(this.defaults.transformResponse)) {
-      this.defaults.transformResponse.forEach(it => {
-        it.call(conf, response.data, response.headers!, response.status)
+  private execTransformResponse(response: Response) {
+    const conf = response.config
+    if (this.defaults.transformResponse) {
+      const transformResponseArray = Array.isArray(this.defaults.transformResponse) ? this.defaults.transformResponse : [this.defaults.transformResponse]
+      transformResponseArray.forEach(it => {
+        response.data = it.call(conf, response.data, response.headers!, response.status)
       })
-    } else {
-      response.data = this.defaults.transformResponse?.call(conf, response.data, response.headers!, response.status) ?? response.data
     }
     return response
   }
@@ -70,36 +87,47 @@ export class Request {
     response: new Interceptors<Response>(new Map)
   }
 
+  private execRequestInterceptors(conf: RequestConfig) {
+    this.interceptors.request.storage.forEach(({ onFulfilled, onRejected }) => {
+      try {
+        conf = onFulfilled?.(conf) ?? conf
+      } catch (err) {
+        if (onRejected) {
+          onRejected(err)
+        } else {
+          throw err
+        }
+      }
+    })
+    return conf
+  }
+
+  private execResponseInterceptors(response: Response) {
+    this.interceptors.response.storage.forEach(({ onFulfilled, onRejected }) => {
+      if (response.status < 200 || response.status > 299) {
+        onRejected?.(response)
+      }
+      try {
+        response = onFulfilled?.(response) ?? response
+      } catch (err) {
+        onRejected?.(err)
+      }
+    })
+    return response
+  }
+
   request<T>(config: RequestConfig): Response<T> {
     try {
-      config.headers = this.defaults.headers.common
-      Object.assign(this.defaults, { headers: {} })
+      config = this.execRequestInterceptors(config)
+      config = this.execTransformRequest(config)
 
-      let conf = mergeObject({}, this.defaults, config) as typeof config & Omit<typeof this.defaults, 'headers'>
-      conf = this.execTransformRequest(conf)
-      this.interceptors.request.storage.forEach(({ onFulfilled, onRejected }) => {
-        try {
-          conf = onFulfilled?.(conf) ?? conf
-        } catch (err) {
-          onRejected?.(err)
-        }
-      })
+      let result = createSyncFn(this.workerFilepath, config.timeout).call(this, JSON.parse(JSON.stringify(config))) as Result<Response<any>, Error>
 
-      let result = createSyncFn(this.workerFilepath, conf.timeout).call(this, JSON.parse(JSON.stringify(conf))) as Result<Response<any>, Error>
       if (result.ok) {
         let response = result.val
-        response.config = conf
-        response = this.execTransformResponse(conf, response)
-        this.interceptors.response.storage.forEach(({ onFulfilled, onRejected }) => {
-          if (response.status < 200 || response.status > 299) {
-            onRejected?.(response)
-          }
-          try {
-            response = onFulfilled?.(response) ?? response
-          } catch (err) {
-            onRejected?.(err)
-          }
-        })
+        response.config = config
+        response = this.execTransformResponse(response)
+        response = this.execResponseInterceptors(response)
         return response
       } else {
         throw result.val

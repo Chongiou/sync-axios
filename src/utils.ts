@@ -22,7 +22,7 @@ export function id() {
 }
 
 export function isObject(val: any): val is Record<string, any> {
-  return val !== null && typeof val === 'object' && !Array.isArray(val)
+  return Object.prototype.toString.call(val).slice(8, -1).toLowerCase() === 'object'
 }
 
 export function arrayBufferToText(buffer: ArrayBuffer) {

@@ -1,6 +1,6 @@
 {
   "name": "@chongiou/sync-axios",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "synchronous web requests",
   "keywords": [
     "http",

@@ -1,5 +1,5 @@
 {
-  "name": "sync-axios",
+  "name": "@chongiou/sync-axios",
   "version": "1.0.0",
   "description": "synchronous web requests",
   "keywords": [
@@ -14,6 +14,10 @@
   "author": "chongiou <chongiou@qq.com>",
   "type": "module",
   "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "copyfile": "node --import tsx script/copy.ts src/index.worker.js to dist/index.worker.js",
     "build": "vite build && npm run copyfile",

@@ -25,18 +25,6 @@ export function isObject(val: any): val is Record<string, any> {
   return val !== null && typeof val === 'object' && !Array.isArray(val)
 }
 
-export type Result<T = unknown, E = unknown> = Ok<T> | Err<E>
-
-export class Ok<T> {
-  readonly ok = true
-  constructor(public val: T) { }
-}
-
-export class Err<E> {
-  readonly ok = false
-  constructor(public val: E) { }
-}
-
 export function arrayBufferToText(buffer: ArrayBuffer) {
   const textDecoder = new TextDecoder('utf-8')
   return textDecoder.decode(buffer)

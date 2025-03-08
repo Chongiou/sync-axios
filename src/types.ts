@@ -1,7 +1,7 @@
-interface TransformRequest {
+export interface TransformRequest {
   (this: RequestConfig, data: any, headers: Record<string, any>): any
 }
-interface TransformResponse {
+export interface TransformResponse {
   (this: RequestConfig, data: any, headers: Record<string, any>, status: number): any
 }
 export interface RequestConfig {
@@ -42,4 +42,16 @@ export interface OnFulfilledInterceptors<T> {
 }
 export interface OnRejectedInterceptors {
   (err: any): any
+}
+
+export type Result<T = unknown, E = unknown> = Ok<T> | Err<E>
+
+export class Ok<T> {
+  readonly ok = true
+  constructor(public val: T) { }
+}
+
+export class Err<E> {
+  readonly ok = false
+  constructor(public val: E) { }
 }

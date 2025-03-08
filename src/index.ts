@@ -1,6 +1,6 @@
 import { createSyncFn } from 'synckit'
-import { id, mergeObject, isObject, type Result, arrayBufferToJSON } from './utils'
-import { RequestConfig, Response, type OnFulfilledInterceptors, type OnRejectedInterceptors, type RequestDefaults } from './types'
+import { id, mergeObject, isObject, arrayBufferToJSON } from './utils'
+import { RequestConfig, Response, OnFulfilledInterceptors, OnRejectedInterceptors, RequestDefaults, Result } from './types'
 
 class Interceptors<T> {
   constructor(public storage: Map<string, {
@@ -57,7 +57,7 @@ export class Request {
       return data
     },
     transformResponse(data, headers) {
-      if (headers['content-type'].includes('application/json')) { 
+      if (headers['content-type'].includes('application/json')) {
         return arrayBufferToJSON(data)
       }
       return data

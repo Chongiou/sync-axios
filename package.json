@@ -22,7 +22,7 @@
   "scripts": {
     "copyfile": "node --import tsx script/copy.ts src/index.worker.js to dist/index.worker.js",
     "build": "vite build && npm run copyfile",
-    "postversion": "git push && git push --tags"
+    "postversion": "npm run build && git push && git push --tags"
   },
   "repository": {
     "type": "git",

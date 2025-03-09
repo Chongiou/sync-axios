@@ -5,6 +5,7 @@ import { Interceptors } from './Interceptors'
 import { URLSearchParams } from 'node:url'
 
 export class Request {
+  private workerFilepath = `${import.meta.dirname}/index.worker.js`
   constructor(defaults: RequestConfig = {}) {
     this.defaults.headers.common = defaults.headers ?? {}
     Object.assign(this.defaults, Object.assign({}, defaults, { headers: {} }))
@@ -24,7 +25,10 @@ export class Request {
     this.interceptors.request.use(internalInterceptorsForMergeConfig.bind(this))
   }
 
-  private workerFilepath = `${import.meta.dirname}/index.worker.js`
+  public interceptors = {
+    request: new Interceptors<RequestConfig>(new Map),
+    response: new Interceptors<Response>(new Map)
+  }
 
   public defaults: RequestDefaults = {
     headers: {
@@ -50,10 +54,10 @@ export class Request {
     transformResponse: [
       (data, headers) => {
         if (headers['content-type']?.includes('application/json')) {
-          data = arrayBufferToJSON(data)
+          return arrayBufferToJSON(data)
         }
         if (headers['content-type']?.includes('text/html') || headers['content-type']?.includes('text/plain')) {
-          data = arrayBufferToText(data)
+          return arrayBufferToText(data)
         }
         return data
       }
@@ -61,12 +65,14 @@ export class Request {
   }
 
   private execTransformRequest(conf: RequestConfig) {
-    if (Array.isArray(this.defaults.transformRequest)) {
-      this.defaults.transformRequest.forEach(it => {
+    if (this.defaults.transformRequest) {
+      const transformRequestArray =
+        Array.isArray(this.defaults.transformRequest)
+          ? this.defaults.transformRequest
+          : [this.defaults.transformRequest]
+      transformRequestArray.forEach(it => {
         conf.data = it.call(conf, conf.data, conf.headers!)
       })
-    } else {
-      conf.data = this.defaults.transformRequest?.call(conf, conf.data, conf.headers ?? {}) ?? conf.data
     }
     return conf
   }
@@ -74,7 +80,10 @@ export class Request {
   private execTransformResponse(response: Response) {
     const conf = response.config
     if (this.defaults.transformResponse) {
-      const transformResponseArray = Array.isArray(this.defaults.transformResponse) ? this.defaults.transformResponse : [this.defaults.transformResponse]
+      const transformResponseArray =
+        Array.isArray(this.defaults.transformResponse)
+          ? this.defaults.transformResponse
+          : [this.defaults.transformResponse]
       transformResponseArray.forEach(it => {
         response.data = it.call(conf, response.data, response.headers!, response.status)
       })
@@ -82,37 +91,31 @@ export class Request {
     return response
   }
 
-  public interceptors = {
-    request: new Interceptors<RequestConfig>(new Map),
-    response: new Interceptors<Response>(new Map)
-  }
-
   private execRequestInterceptors(conf: RequestConfig) {
-    this.interceptors.request.storage.forEach(({ onFulfilled, onRejected }) => {
+    for (const { onFulfilled, onRejected } of this.interceptors.request.storage.values()) {
       try {
         conf = onFulfilled?.(conf) ?? conf
       } catch (err) {
-        if (onRejected) {
-          onRejected(err)
-        } else {
-          throw err
-        }
+        if (onRejected) onRejected(err)
+        else throw err
       }
-    })
+    }
     return conf
   }
 
   private execResponseInterceptors(response: Response) {
-    this.interceptors.response.storage.forEach(({ onFulfilled, onRejected }) => {
+    for (const { onFulfilled, onRejected } of this.interceptors.response.storage.values()) {
       if (response.status < 200 || response.status > 299) {
-        onRejected?.(response)
+        if (onRejected) onRejected(response)
+        // else throw response
       }
       try {
         response = onFulfilled?.(response) ?? response
       } catch (err) {
-        onRejected?.(err)
+        if (onRejected) onRejected(err)
+        else throw err
       }
-    })
+    }
     return response
   }
 

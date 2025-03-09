@@ -119,11 +119,24 @@ export class Request {
     return response
   }
 
+  private checkConfig(config: RequestConfig) {
+    // 检查 content-type有没有添加, 如果没有则根据data设置
+    if (config.headers && !config.headers['content-type']) {
+      if (isObject(config.data)) {
+      config.headers['content-type'] = 'application/json'
+      } else if (typeof config.data === 'string' || config.data instanceof URLSearchParams) {
+      config.headers['content-type'] = 'application/x-www-form-urlencoded'
+      }
+    }
+    return config
+  }
+
   request<T>(config: RequestConfig): Response<T> {
     try {
       config = this.execRequestInterceptors(config)
       config = this.execTransformRequest(config)
 
+      config = this.checkConfig(config)
       let result = createSyncFn(this.workerFilepath, config.timeout).call(this, JSON.parse(JSON.stringify(config))) as Result<Response<any>, Error>
 
       if (result.ok) {
